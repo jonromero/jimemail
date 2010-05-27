@@ -1,0 +1,51 @@
+application: thejimemail
+version: development
+api_version: 1
+runtime: python
+
+inbound_services:
+- mail
+
+handlers:
+- url: /remote_api
+  script: $PYTHON_LIB/google/appengine/ext/remote_api/handler.py
+  login: admin
+
+- url: /_ah/mail/.+ 
+  script: in_mail.py 
+
+- url: /(?P<a>.+?)/static/(?P<b>.+)
+  static_files: applications/\1/static/\2
+  upload: applications/(.+?)/static/(.+)
+  secure: optional
+
+- url: /admin-gae/.*
+  script: $PYTHON_LIB/google/appengine/ext/admin
+  login: admin
+ 
+- url: /_ah/queue/default
+  script: gaehandler.py
+  login: admin
+
+- url: .*
+  script: gaehandler.py  
+  secure: optional
+
+skip_files: |
+ ^(.*/)?(
+ (app\.yaml)|
+ (app\.yml)|
+ (index\.yaml)|
+ (index\.yml)|
+ (#.*#)|
+ (.*~)|
+ (.*\.py[co])|
+ (.*/RCS/.*)|
+ (\..*)|
+ ((admin|examples|welcome)\.tar)|
+ (applications/(admin|examples)/.*)|
+ (applications/.*?/databases/.*) |
+ (applications/.*?/errors/.*)|
+ (applications/.*?/cache/.*)|
+ (applications/.*?/sessions/.*)|
+ )$
