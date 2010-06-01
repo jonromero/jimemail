@@ -1,7 +1,6 @@
 import logging, email
 import wsgiref.handlers
 import exceptions
-from datetime import date
 
 from google.appengine.api import mail
 from google.appengine.ext import db
@@ -14,7 +13,7 @@ class Tag(db.Model):
 	tag = db.CategoryProperty(required=True)
 	email = db.EmailProperty(required=True)
 	deadline = db.DateProperty()
-	created_at = db.DateProperty()
+	created_at = db.DateTimeProperty(auto_now=True)
 
 class EmailHandler(InboundMailHandler):
     def receive(self, mail_message):
@@ -51,12 +50,11 @@ def find_tag(user, tags, deadline):
 
 
 def add_tag(user, tags, deadline, body):
-	if tags == list():
+	if type(tags) == list:
 		for tag in tags:
-			add_tag(user, tags, deadline, body)
+			add_tag(user, tag, deadline, body)
 	else:
 		t = Tag(email=user, tag=tags, deadline=deadline, body=body) if deadline else Tag(email=user, tag=tags, body=body)
-		t.created_at = date.today()
 		t.put()
 		
 	
