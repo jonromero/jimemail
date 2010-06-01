@@ -1,1 +1,40 @@
-.
+A simple system that reads emails from a google account
+and categorizes them based on subject
+[idea], [project], [whatever]
+
+displays them in a ui
+and send an email with todos
+
+
++ Parse text
++ create db entries
++ send email (todos and soon to be finished) (http://code.google.com/appengine/docs/python/mail/sendingmail.html)
++ register via email (it's email and a uid that gets generated on first email)
+
+DONE
+-----
++ Read from email (http://code.google.com/appengine/docs/python/mail/receivingmail.html)
+
+
+get mail-> get [text.lowerCase.strip]:due_date-> add entry: 
+{id, [text], due_date, body, email, created_at}
+
+commands ->
+get [text]
+
+get :due_date
+
+get :all
+
+body->
+
+[Todos]
+1. Play
+2. Hey!
+
+---------
+1. done
+2. delete
+
+if more than 1000 entries, suspend account, notify admin
+

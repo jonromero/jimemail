@@ -3,68 +3,110 @@ import wsgiref.handlers
 import exceptions
 
 from google.appengine.api import mail
+from google.appengine.ext import db
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
 from google.appengine.ext.webapp.mail_handlers import InboundMailHandler
-from google.appengine.api import mail
 
-class LogSenderHandler(InboundMailHandler):
+class Tag(db.Model):
+	body = db.TextProperty(required=True)
+	tag = db.StringProperty(required=True)
+	email = db.StringProperty(required=True)
+	deadline = db.DateProperty()
+	created_at = db.DateProperty()
+
+class EmailHandler(InboundMailHandler):
     def receive(self, mail_message):
-        logging.info("================================")
-        logging.info("Received a mail_message from: " + mail_message.sender)
-        logging.info("The email subject: " + mail_message.subject)
-        logging.info("The email was addressed to: " + str.join(mail_message.to, ', '))
+		result = process_email(mail_message)
 
-        try:
-            logging.info("The email was CC-ed to: " + str.join(mail_message.cc, ', '))
-        except exceptions.AttributeError :
-            logging.info("The email has no CC-ed recipients")
-
-        try:
-            logging.info("The email was send on: " + str(mail_message.date))
-        except exceptions.AttributeError :
-            logging.info("The email has no send date specified!!!")
-
-        plaintext_bodies = mail_message.bodies('text/plain')
-        html_bodies = mail_message.bodies('text/html')
-
-        for content_type, body in html_bodies:
-            decoded_html = body.decode()
-            logging.info("content_type: " + content_type)
-            logging.info("decoded_html: " + decoded_html)
-            plaintext_bodies
-
-        attachments = []
-        # hasattr(a, 'property')
-        # http://stackoverflow.com/questions/610883/how-to-know-if-an-object-has-an-attribute-in-python
-        try:
-            if mail_message.attachments :
-                if isinstance(mail_message.attachments[0], basestring):
-                    attachments = [mail_message.attachments]
-                else:
-                    attachments = mail_message.attachments
-        except exceptions.AttributeError :
-            logging.info("This email has no attachments.")
-
-        logging.info("number of attachments: " + str(len(attachments)))
-
-        for filename, content in attachments:
-            #logging.info("plaintext_bodies: " + plaintext_bodies)
-            logging.info("filename: " + filename)
-            content
-
-        logging.info("--------------------------------")
-
-        mail.send_mail(sender=mail_message.to,
-              to=mail_message.sender,
-              subject="hi",
-              body="coool")
+		if result:
+			mail.send_mail(sender=mail_message.to,
+						   to=mail_message.sender,
+						   subject="You asked for some tags",
+						   body=result)
 
 
+def return_tag_command(subject):
+	"""
+	Returns tag contents
+	get tag1, tag2, tag3 -> due_date
+	get    # returns all tags 
+	"""
+
+	(tags, deadline) = parse_subject(subject)
+
+	tag = find_tag(user, tags, deadline)
+	if tag:
+		return tag
+	else:
+		return "Not found", tag
+	
+
+def find_tag(user, tags, deadline):
+	if tags:
+		return db.GqlQuery("SELECT * FROM Tag WHERE email = :1 and tag = :2 and deadline = :3", user, tags, deadline)
+	else: #return all tags
+		return db.GqlQuery("SELECT * FROM Tag WHERE email = :1", user)
+
+def add_tag(user, tags, deadline, body):
+
+	logging.info(tags)
+
+	for tag in tags:
+		if deadline:
+			t = Tag(email=user, tag=tag, deadline=deadline, body=body)
+		else:
+			t = Tag(email=user, tag=tag, body=body)
+
+		t.put()
+	
+def process_email(email):
+	"""
+	Adds/Updates new tags
+	"""
+
+	# check if its a command to retrieve messages
+	if 'get' in email.subject:
+		return return_tag_command(email.subject.split('get')[1])
+
+
+	(tags, deadline) = parse_subject(email.subject)
+
+	user = email.sender
+	body = ""
+	for content_type, ebody in email.bodies('text/plain'):
+		body += ebody.decode()
+	
+	#tag = find_tag(user, tag, deadline)
+	#if tag:
+	#	update_status_tag(tag, body)
+	#else:	
+	add_tag(user, tags, deadline, body)
+
+	return None
+	
+def parse_subject(subject):
+	"""
+	Returns types of email (tags)
+	Example: 'todo, idea -> 14/05/2010'
+	"""
+	deadline = None
+	tags = None
+	
+    # we have a deadline
+	if '->' in subject:
+		tags, deadline = subject.split('->')
+		tags = tags.split(',') if ',' in tags else tags
+	else:
+		tags = subject.split(',') if ',' in subject else subject
+	
+	return (tags, deadline)
+	
 def main():
-    application = webapp.WSGIApplication([LogSenderHandler.mapping()], debug=True)
+    application = webapp.WSGIApplication([EmailHandler.mapping()], debug=True)
     wsgiref.handlers.CGIHandler().run(application)
-
 
 if __name__ == '__main__':
     main()
+
+
