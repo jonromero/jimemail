@@ -20,10 +20,14 @@ class EmailHandler(InboundMailHandler):
 		result = process_email(mail_message)
 
 		if result:
-			mail.send_mail(sender=mail_message.to,
-						   to=mail_message.sender,
-						   subject="You asked for some tags",
-						   body=result)
+			send_email(mail_message.to, mail_message.sender, mail_message.subject, mail_message.body)
+			
+					   
+def send_email(sender, to, subject, body):
+	mail.send_mail(sender=sender,
+				   to=to,
+				   subject=subject,
+				   body=body)
 
 
 def return_tag_command(subject):
@@ -58,15 +62,21 @@ def add_tag(user, tags, deadline, body):
 		t.put()
 		
 	
+def find_user(email):
+	return db.GqlQuery("SELECT * FROM Tag WHERE email = :1", email).get()
+
 def process_email(email):
 	"""
 	Adds/Updates new tags
 	"""
-
+	# user never used the service before
+	# so send him an email with instructions!
+	if not find_user(email.sender):
+		send_email(email.to, email.sender, "Welcome to thejimemail!", "These are the instructions!")
+		
 	# check if its a command to retrieve messages
 	if 'get' in email.subject:
 		return return_tag_command(email.subject.split('get')[1])
-
 
 	(tags, deadline) = parse_subject(email.subject)
 
