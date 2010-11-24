@@ -8,19 +8,26 @@ from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
 from google.appengine.ext.webapp.mail_handlers import InboundMailHandler
 
+"""
 class Tag(db.Model):
 	body = db.TextProperty(required=True)
 	tag = db.CategoryProperty(required=True)
 	email = db.EmailProperty(required=True)
-	deadline = db.DateProperty()
+	created_at = db.DateTimeProperty(auto_now=True)
+"""
+
+class Tag(db.Model):
+	body = db.StringListProperty(required=True)
+	tag = db.CategoryProperty(required=True)
+	email = db.EmailProperty(required=True)
 	created_at = db.DateTimeProperty(auto_now=True)
 
 class EmailHandler(InboundMailHandler):
     def receive(self, mail_message):
-		result = process_email(mail_message)
+		command_response = process_email(mail_message)
 
-		if result:
-			send_email(mail_message.to, mail_message.sender, mail_message.subject, mail_message.body)
+		if command_response:
+			send_email(mail_message.to, mail_message.sender, mail_message.subject, command_response)
 			
 					   
 def send_email(sender, to, subject, body):
@@ -30,40 +37,85 @@ def send_email(sender, to, subject, body):
 				   body=body)
 
 
-def return_tag_command(subject):
+def return_tag_command(user, subject):
 	"""
 	Returns tag contents
-	get tag1, tag2, tag3 -> due_date
-	get    # returns all tags 
+	? tag1, tag2, tag3 -> due_date
+	?    # returns all tags 
 	"""
 
-	(tags, deadline) = parse_subject(subject)
+	tags, = parse_subject(subject)
 
-	tag = find_tag(user, tags, deadline)
+	tag = find_tag(user, tags)
 	if tag:
 		return tag
 	else:
 		return "Not found", tag
 	
 
-def find_tag(user, tags, deadline):
+def find_tag(user, tags):
+	result = []
+
 	if tags:
-		return db.GqlQuery("SELECT * FROM Tag WHERE email = :1 and tag = :2 and deadline = :3", user, tags, deadline)
+		if type(tags) == list():
+			for tag in tags:
+				result += db.GqlQuery("SELECT * FROM Tag WHERE email = :1 and tag = :2", user, tag).fetch(1000)
+		else:
+			result = db.GqlQuery("SELECT * FROM Tag WHERE email = :1 and tag = :2", user, tags).fetch(1000)
 	else: #return all tags
-		return db.GqlQuery("SELECT * FROM Tag WHERE email = :1", user)
+		result = db.GqlQuery("SELECT * FROM Tag WHERE email = :1", user).fetch(1000)
 
 
-def add_tag(user, tags, deadline, body):
-	if type(tags) == list:
+	
+	return result
+
+def add_tag(user, tags, body):
+	lst_body = [d.strip() for d in body.split("*") if d.strip() != ""]  if "*" in body else [body]
+
+	if type(tags) == list():
 		for tag in tags:
-			add_tag(user, tag, deadline, body)
+			t = Tag(email=user, tag=tag, body=lst_body)
+			t.put()
 	else:
-		t = Tag(email=user, tag=tags, deadline=deadline, body=body) if deadline else Tag(email=user, tag=tags, body=body)
+		t = Tag(email=user, tag=tags.strip(), body=lst_body)
 		t.put()
+
+def update_tag(tag, body, erase=False):
+	if erase:
+		done_items = check_for_done(body)
+	else:
+		done_items = []
 		
+	items = [t for t in tag.body]
+
+	if done_items:
+		for done_item in done_items:
+			items.remove(done_item)
+	else:
+		items.append(body)
+		
+	tag.body = items
+	tag.put()
+	
+
+def check_for_done(body):
+	done_items = []
+	
+	# Break lines that start with '*' to items (skip emtpy lines)
+	data = [d.strip() for d in body.split("*") if d.strip() != ""]  if "*" in body else [body]
+
+	# if "done" is found in a line, mark the previous one
+	for idx in range(len(data)):
+		if "done" in data[idx].lower():
+			previous_data = data[idx-1] if idx > 1 else None
+			done_items.append(previous_data)
+
+	return done_items
+			
 	
 def find_user(email):
 	return db.GqlQuery("SELECT * FROM Tag WHERE email = :1", email).get()
+
 
 def process_email(email):
 	"""
@@ -75,40 +127,39 @@ def process_email(email):
 		send_email(email.to, email.sender, "Welcome to thejimemail!", "These are the instructions!")
 		
 	# check if its a command to retrieve messages
-	if 'get' in email.subject:
-		return return_tag_command(email.subject.split('get')[1])
+	if '?' in email.subject:
+		return return_tag_command(email.sender, email.subject.split('?')[0])
 
-	(tags, deadline) = parse_subject(email.subject)
+	tags = parse_subject(email.subject)
 
 	user = email.sender
 	body = ""
 	for content_type, ebody in email.bodies('text/plain'):
 		body += ebody.decode()
-	
-	#tag = find_tag(user, tag, deadline)
-	#if tag:
-	#	update_status_tag(tag, body)
-	#else:	
-	add_tag(user, tags, deadline, body)
+
+	# check if its a command to interact messages
+	if 're:' in email.subject[0:3].lower():
+		return update_tag(tag, body, True)
+
+	# if tag exists, update it
+	tag = find_tag(user, tags)
+	if tag:
+		if type(tag) == list():
+			for t in tag:
+				update_tag(t, body)
+	else:	
+		add_tag(user, tags, body)
 
 	return None
 	
 def parse_subject(subject):
 	"""
 	Returns types of email (tags)
-	Example: 'todo, idea -> 14/05/2010'
+	Example: 'todo, idea'
 	"""
-	deadline = None
-	tags = None
+	tags = subject.split(',') if ',' in subject else subject.strip()
 	
-    # we have a deadline
-	if '->' in subject:
-		tags, deadline = subject.split('->')
-		tags = tags.split(',') if ',' in tags else tags
-	else:
-		tags = subject.split(',') if ',' in subject else subject
-	
-	return (tags, deadline)
+	return tags
 	
 def main():
     application = webapp.WSGIApplication([EmailHandler.mapping()], debug=True)
